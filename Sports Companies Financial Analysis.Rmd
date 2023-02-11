@@ -39,11 +39,10 @@ print(Company_Information)
 
 ### Load sheets and format date so they are ready to be used
 
-```{r}
-FX <- read_excel(Company_Information, sheet = "FX") %>% 
+```{r include=TRUE}
+FX <- read_xls(Company_Information, sheet = "FX") %>% 
   mutate(Year = excel_numeric_to_date(Date),
          Year = as.character(Year))
-print(FX)
 ```
 
 
