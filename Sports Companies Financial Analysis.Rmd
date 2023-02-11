@@ -1,0 +1,56 @@
+---
+title: "Sports Companies Financial Analysis"
+author: "Yemi Ajayi"
+date: "11-02-2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(readxl)
+library(stringr)
+library(openxlsx)
+library(lubridate)
+library(janitor)
+library(glue)
+library(kableExtra)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+
+The main aim of this project is to carry out financial statement analysis on four sportswear brands, covering a time period of 31-12-2011 to 31-12-2020.
+
+The project required me to manipulate the data, carry out data wrangling and create data visualisations in Tableau, to provide information about the brand's business performance and financial position. 
+
+### Load files 
+
+The first thing I done was to load the excel file with all the accounting information
+
+```{r include = FALSE}
+Company_Information <- read_excel("~/Sports Company/Company_Information.xlsx")
+```
+
+```{r}
+print(Company_Information)
+```
+
+### Load sheets and format date so they are ready to be used
+
+```{r}
+FX <- read_excel(Company_Information, sheet = "FX") %>% 
+  mutate(Year = excel_numeric_to_date(Date),
+         Year = as.character(Year))
+print(FX)
+```
+
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
