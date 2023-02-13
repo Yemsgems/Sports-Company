@@ -1,0 +1,253 @@
+---
+title: "Sports-Company"
+author: "Yemi Ajayi"
+date: "13/02/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(xlsx)
+library(writexl)
+library(dplyr)
+library(readxl)
+library(stringr)
+library(openxlsx)
+library(lubridate)
+library(janitor)
+library(glue)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction 
+
+This project aims to analyse four sportswear brands' financial statements covering the period 31-12-2011 to 31-12-2020.
+Data manipulation, data wrangling, and data creation were all part of the project.
+Data visualisations in Tableau, to provide insight into the brand's performance and financial position.
+
+### Load files
+
+I started by loading the Excel sheets with all the accounting information, exchange rates and formatting the dates.
+
+```{r, include = FALSE}
+input_path <- "C:/R Projects/R Training/Company_Information.xlsx"
+```
+
+### Load sheet with all exchange rates
+
+```{r}
+FX <- read.xlsx(input_path, sheet = "FX") %>% 
+  mutate(Year = excel_numeric_to_date(Date),
+         Year = as.character(Year))
+print(FX)
+```
+
+### Load sheet with all accounting information
+
+Data has grouped by sports company name and their financial statements using  `group_by` as this will make it easier for us to produce new metrics later.
+
+I then used `mutate` to create a new column called “rowID” which will input what number row each data point is on. I then created a new column called “Order” which will paste the information from the “Financial_Statement” column, followed by a “_” followed by the information in the rowID column. 
+
+`pivot_longer` was used to convert short data format to long data format. This will allow us to filter through charts on Tableau.
+
+I then used `le
+ft_join` to connect the two data frames together by Year and Conversion. I converted all the values into British Sterling by multiplying the Value column by the Rate column which will be done through the `mutate` function once again. 
+
+The `select` function was used to remove the columns I did not need. “Date”, “Value”, “Rate” and “Conversion” column were removed. 
+
+Finally I added an `ungroup` at the very end so that our data does not stay grouped as it will affect how we manipulate the code later down the line.
+
+```{r}
+ALL_DATA <- read.xlsx(input_path, sheet = "ALL_DATA_R") %>% 
+  group_by(Name, Financial_Statement) %>% 
+  mutate(rowID = row_number(), Order = paste0(Financial_Statement,"_", rowID)) %>% 
+  pivot_longer(cols = 4:13, names_to = "Year", values_to = "Value") %>% 
+  mutate(Item = trimws(Item), Year = convert_to_date(Year),Year = as.character(Year)) %>% 
+  left_join(FX, by = c("Year", "Conversion")) %>% 
+  mutate(Sterling_value = Value*Rate) %>% 
+  select(-(Date),-(Value),-(Rate),-(Conversion), -(rowID), -(Order)) %>% 
+  ungroup()
+print(ALL_DATA)
+```
+
+### Creating new metrics
+
+Using the prepared data to create Gross Profit Margin, Operating profit margin and Net Profit Margin metrics:
+
+Gross Profit Margin = Gross Profit/ Revenue 
+
+Operating Profit Margin (EBIT margin) = Operating Profit/Revenue
+
+Net Profit Margin = Net Income/ Revenue
+
+I created three new data frames called “GPM”, “EBIT_Margin” and “Net_Margin”. We then need to `filter` for only the two data points for each metric.
+
+To make the new columns  in our data frame, I used `pivot_wider` to change the data frame back to short format which allow me to do calculations  column to column, not through each row. 
+
+```{r}
+# creating new metrics and GPM changing to long format to allow calculation
+GPM <- ALL_DATA %>% filter(Item == "Gross Profit" | Item == "Total Revenue")%>% 
+  pivot_wider(., names_from = Item, values_from = Sterling_value) %>% 
+  rename(Gross_Profit = "Gross Profit", Total_Revenue = "Total Revenue") %>% 
+  mutate(GPM = Gross_Profit/Total_Revenue)
+
+# Creating new metrics EBIT_Margin and changing to long format to allow calculation
+EBIT_Margin <- ALL_DATA %>%  filter(Item == "Operating Income"| Item == "Total Revenue") %>% pivot_wider(., names_from = Item, values_from = Sterling_value) %>% 
+rename(Operating_Income = "Operating Income", Total_Revenue = "Total Revenue") %>%  
+mutate(EBM = Operating_Income/Total_Revenue)
+
+# creating new metrics Net Profit Margin and changing to long format to allow calculation
+Net_Margin <- ALL_DATA %>%  filter( Item == "Net Income" | Item == "Total Revenue") %>%
+  pivot_wider(., names_from = Item, values_from = Sterling_value) %>% 
+  rename(Net_Income = "Net Income", Total_Revenue = "Total Revenue") %>% 
+  mutate(NPM = Net_Income/Total_Revenue)
+
+print(GPM)
+print(EBIT_Margin)
+print(Net_Margin)
+```
+
+### Multiple variable function to create new metrics
+
+I designed a multiple variable function to create Leverage data frame and asset turnover data frame, this saved me repeating several lines of code like above.
+
+Leverage = Assets/ Equity 
+
+Asset Turnover = Revenue/ Assets
+
+```{r}
+#Function with multiple variables 
+Ratio_Function_2 <- function(numerator,denominator) {
+  
+  funct <- ALL_DATA %>% 
+    filter(Item == numerator | Item == denominator) %>% 
+    mutate(Item = str_replace(Item, " ", "_")) %>% 
+    select(-(Financial_Statement)) %>% 
+    pivot_wider(., names_from = Item, values_from = Sterling_value)
+  return(funct)
+  
+}
+
+Leverage <- Ratio_Function_2(numerator = "Total Assets", denominator = "Total Equity") %>% 
+  mutate(Lev = Total_Assets/Total_Equity) %>% 
+  select(-(Total_Assets), -(Total_Equity))
+
+Assets <- Ratio_Function_2(numerator = "Total Revenue", denominator = "Total Assets") %>% 
+  mutate(AST = Total_Revenue/Total_Assets) %>% 
+  select(-(Total_Revenue), -(Total_Assets))
+
+print(Leverage)
+print(Assets)
+```
+
+### Attach new created metrics to main data set and create DuPont ROE metric
+
+DuPont ROE = Profit Margin x Total Asset Turnover x Leverage Factor 
+
+```{r}
+#attach new metrics to dataset
+IS_Analysis <- GPM %>% 
+  left_join(EBIT_Margin, by = c("Name", "Financial_Statement", "Year")) %>% 
+  left_join(Net_Margin, by = c("Name", "Financial_Statement", "Year")) %>% 
+  left_join(Leverage, by = c("Name", "Year")) %>% 
+  left_join(Assets, by = c("Name","Year")) %>% 
+    select(Name, Year, Financial_Statement, GPM, EBM, NPM, Lev, AST) %>% 
+    mutate(Dupont_ROE = NPM*AST*Lev) %>% 
+    pivot_longer(cols = GPM:Dupont_ROE,
+                 names_to = "Item", 
+                 values_to = "Sterling_Value") %>% 
+    mutate(Sterling_Value = round(Sterling_Value, 2))
+
+
+#combine datasets
+ALL_DATA <- bind_rows(ALL_DATA, IS_Analysis)
+print(ALL_DATA)
+```
+
+### Creating  Receivable  turnover metric
+
+Calculating the Receivable turnover data frame metric which is:
+
+Receivable Turnover  = Net sales /Average Receivables 
+```{r}
+Receivables <- ALL_DATA %>% filter(Item=='Total Receivables, Net') %>% 
+  arrange(Name, Year) %>% 
+  group_by(Name) %>% 
+  filter(Financial_Statement == "BS") %>% 
+  mutate(pre_value = lag(Sterling_value, n = 1, default = NA),
+         Average_Receivables = (Sterling_value + pre_value)/2)
+
+```
+
+### Creating metrics with a multi variable function
+
+I designed a multiple variable function to create three new data frames, Accounts receivables, Account Payables and Inventory. 
+
+Receivables Turnover = Net sales/ Average Receivables
+
+Inventory Turnover = COGS/Average Inventory
+
+Payables Turnover = Purchases/Average Payables 
+
+```{r}
+#create function
+
+Average <- function(VAR1, VAR2) {
+  
+  AVG <- ALL_DATA %>% 
+    filter(Item == VAR1) %>% 
+    arrange(Name, Year) %>% 
+    filter(Financial_Statement == 'BS') %>% 
+    mutate(prev_value = lag(Sterling_value, n = 1, default = NA),
+           Average = (Sterling_value + prev_value)/2) %>% 
+          select(Name, Financial_Statement, Year, Average)
+           
+Numerator <- ALL_DATA %>% 
+  filter(Item == VAR2) %>% 
+  select(Name, Year, Sterling_value) %>% 
+  rename(Nums = Sterling_value)
+
+AVG_FIN <- AVG %>% 
+  left_join(Numerator, by = c("Name", "Year")) %>% 
+  mutate(Calculation = Nums/Average) %>% 
+  select(-(Average), -(Nums)) %>% 
+  rename(Sterling_value = Calculation)
+
+return(AVG_FIN)
+}
+
+```
+Using the newly created function to create three new data frames
+
+```{r}
+#Accounts receivables
+Acc_Rec <- Average(VAR1 = "Total Receivables, Net", VAR2 = "Total Revenue") %>% 
+  mutate(Item = "Receivables Turnover")
+
+#Accounts Payables
+Acc_Pay <- Average(VAR1 = "Accounts Payable", VAR2 = "Cost of Revenue") %>% 
+  mutate(Item = "Paybles Turnover")
+
+#Inventory 
+Inv <- Average(VAR1 = "Total Inventory", VAR2 = "Cost of Revenue") %>% 
+  mutate(Item = "Inventory Turnover")
+
+print(Acc_Rec)
+print(Acc_Pay)
+print(Inv)
+```
+
+### Attach newly created metrics to main data set
+
+Adding the new created metrics to the main data frame
+
+```{r}
+ALL_DATA_FINAL <- ALL_DATA
+ALL_DATA_FINAL_W2 <-ALL_DATA_FINAL %>% 
+  bind_rows(Acc_Pay, Acc_Rec, Inv)
+
+```
+
+
+
